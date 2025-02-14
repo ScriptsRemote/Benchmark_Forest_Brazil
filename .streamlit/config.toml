@@ -1,0 +1,18 @@
+[theme]
+primaryColor = "#00796b"  # Verde IPAM
+backgroundColor = "#708090"  # Fundo escuro (verde escuro)
+secondaryBackgroundColor = "#004d40"  # Sidebar branca
+textColor = "#ffffff"  # Texto branco no fundo escuro
+font = "sans serif"  # Fonte sem serifa
+
+
+[server]
+enableStaticServing = true
+headless = true
+
+[client]
+showSidebarNavigation = true
+toolbarMode = "minimal"  # Oculta a barra do Streamlit para um visual mais limpo
+
+[ui]
+hideTopBar = true  # Remove a barra de menu superior
