@@ -290,9 +290,9 @@ else:
     
     
 
-    Map = geemap.Map(center=[-15, -55], zoom=4)
+    Map = geemap.Map(center=[-15, -55], zoom=4,basemap='CartoDB.DarkMatter')
     Map.add_basemap('SATELLITE')          # Google Satellite
-    Map.add_basemap('CartoDB.DarkMatter') # Mapa "preto"
+    # Map.add_basemap('CartoDB.DarkMatter') # Mapa "preto"
     Map.addLayer(single_band_masked, vis_params, f"{selected_product} - {selected_year}")
     Map.addLayerControl()
         # # Renderiza o mapa no Streamlit
