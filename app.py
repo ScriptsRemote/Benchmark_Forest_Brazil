@@ -22,11 +22,6 @@ st.set_page_config(layout="wide")
 
 ##Login GEE 
 m=geemap.Map()
-
-
-# ---------------------------------------------------------------------------- #
-# 2. Definição das variáveis principais
-# ---------------------------------------------------------------------------- #
 firstYear = 1985
 lastYear = 2023
 totalYears = lastYear - firstYear + 1
@@ -36,186 +31,45 @@ mappingVersion = 'v7'                # Versão do mapeamento (sua escolha)
 assetFolder = 'users/ybyrabr/public' # Pasta de destino dos assets no GEE
 
 # Delimitação do Brasil (Asset que você tem no GEE)
-brazil = ee.FeatureCollection("users/celsohlsj/brazil")
+brazil = ee.FeatureCollection("projects/ee-ipamchristhian/assets/BR_UF_2023").filter(ee.Filter.eq('SIGLA_UF','PA'))
 
-# Dados do MapBiomas (Collection 9)
-# Link oficial do MapBiomas no GEE: 
-# "projects/mapbiomas-public/assets/brazil/lulc/collection9/mapbiomas_collection90_integration_v1"
-mapbiomas = ee.Image('projects/mapbiomas-public/assets/brazil/lulc/collection9/mapbiomas_collection90_integration_v1')
-
-# ---------------------------------------------------------------------------- #
-# 3. Reclassificação das bandas de floresta e máscara antrópica
-# ---------------------------------------------------------------------------- #
-# 3.1 Reclassificando para Floresta (bandas para cada ano) 
-empty_forest = ee.Image().byte()
-for i in range(totalYears):
-    y = firstYear + i
-    band_name = 'classification_{}'.format(y)
-    # Reclassifica para classe "1" se for (3,4,5,6,49,11,12,32,50), senão 0
-    forest = mapbiomas.select(band_name).remap(
-        [3, 4, 5, 6, 49, 11, 12, 32, 50], 
-        [1, 1, 1, 1, 1, 1, 1, 1, 1],
-        0
-    )
-    empty_forest = empty_forest.addBands(forest.rename(band_name))
-
-# Seleciona apenas as bandas criadas
-mapbiomas_forest = empty_forest.select(empty_forest.bandNames())
-
-# 3.2 Máscara antrópica (bandas para cada ano)
-empty_anthropic = ee.Image().byte()
-for i in range(totalYears):
-    y = firstYear + i
-    band_name = 'classification_{}'.format(y)
-    # Reclassifica para classe "1" se for (15,19,39,20,40,62,41,46,47,35,48,9,21), senão 0
-    anthropic = mapbiomas.select(band_name).remap(
-        [15, 19, 39, 20, 40, 62, 41, 46, 47, 35, 48, 9, 21],
-        [1, 1, 1,  1,  1,  1,  1,  1,  1,  1,  1, 1,  1],
-        0
-    ).rename(band_name)
-    empty_anthropic = empty_anthropic.addBands(anthropic)
-
-anthropic_mask = empty_anthropic.select(empty_anthropic.bandNames())
-
-# ---------------------------------------------------------------------------- #
-# 4. Mapeamento do Incremento Anual de Floresta Secundária
-# ---------------------------------------------------------------------------- #
-# sforest_all contém para cada ano (a partir de 1986) se houve surgimento de floresta secundária
-empty_sforest_all = ee.Image().byte()
-for i in range(totalYears - 1):
-    y1 = firstYear + i
-    y2 = y1 + 1
-
-    band_name1 = 'classification_{}'.format(y1)
-    band_name2 = 'classification_{}'.format(y2)
-
-    a_mask = anthropic_mask.select(band_name1)
-    # forest1 = mapbiomas_forest no ano anterior, mas remapeada 0->0,1->2
-    forest1 = mapbiomas_forest.select(band_name1).remap([0, 1], [0, 2])
-    forest2 = mapbiomas_forest.select(band_name2)
-
-    # Se era 2 (floresta no ano anterior) + 1 (floresta no ano atual) = 3 -> esse local "apareceu" este ano
-    # Ajuste: sforest=1 quando 2+1=3. Do contrário 0
-    sforest = forest1.add(forest2).remap([0, 1, 2, 3], [0, 1, 0, 0])
-    # Multiplica pela máscara antrópica do ano anterior (só conta onde era antrópico)
-    sforest = sforest.multiply(a_mask).rename(band_name2)
-
-    empty_sforest_all = empty_sforest_all.addBands(sforest)
-
-sforest_all = empty_sforest_all.select(empty_sforest_all.bandNames())
-
-# ---------------------------------------------------------------------------- #
-# 5. Mapeamento da Extensão Anual de Floresta Secundária
-# ---------------------------------------------------------------------------- #
-empty_sforest_ext = ee.Image().byte()
-
-# A primeira banda para 1986 (primeiro ano que podemos ter incremento)
-# Pegamos o 'classification_1986' da sforest_all diretamente
-ext1986 = sforest_all.select('classification_1986')
-empty_sforest_ext = empty_sforest_ext.addBands(ext1986.rename('classification_1986'))
-
-# Para anos subsequentes
-for i in range(1, totalYears - 1):
-    y = firstYear + 1 + i
-    band_name = 'classification_{}'.format(y)
-    band_name_prev = 'classification_{}'.format(y - 1)
-
-    sforest = sforest_all.select(band_name)
-    acm_forest = empty_sforest_ext.select(band_name_prev).add(sforest)
-    
-    # se acm_forest != 0 então há floresta secundária acumulada
-    remap = acm_forest.neq(0)
-    # multiplica pela floresta do mapbiomas (garantindo que ainda é floresta)
-    remap = remap.multiply(mapbiomas_forest.select(band_name))
-    
-    empty_sforest_ext = empty_sforest_ext.addBands(remap.rename(band_name))
-
-sforest_ext = empty_sforest_ext.select(empty_sforest_ext.bandNames())
-
-# ---------------------------------------------------------------------------- #
-# 6. Mapeamento da Perda de Floresta Secundária
-# ---------------------------------------------------------------------------- #
-empty_sforest_loss = ee.Image().byte()
-empty_temp = ee.Image().byte()
-
-# Inicia com a banda 1986
-ext1986 = sforest_all.select('classification_1986').rename('classification_1986')
-empty_temp = empty_temp.addBands(ext1986)
-
-for i in range(1, totalYears - 1):
-    y = firstYear + 1 + i
-    band_name = 'classification_{}'.format(y)
-    band_name_prev = 'classification_{}'.format(y - 1)
-
-    sforest = sforest_all.select(band_name)
-    acm_forest = empty_temp.select(band_name_prev).add(sforest)
-    
-    remap = acm_forest.neq(0)
-    # se mapbiomas_forest == 1 => 1, se 0 => 500
-    mask = mapbiomas_forest.select(band_name).remap([0, 1], [500, 1])
-    loss = remap.add(mask).remap([1, 2, 500, 501], [0, 0, 0, 1])
-
-    empty_sforest_loss = empty_sforest_loss.addBands(loss.rename(band_name))
-    # Atualiza para a próxima iteração: se continua floresta, soma
-    empty_temp = empty_temp.addBands(
-        remap.multiply(mapbiomas_forest.select(band_name)).rename(band_name)
-    )
-
-sforest_loss = empty_sforest_loss.select(empty_sforest_loss.bandNames())
-
-# ---------------------------------------------------------------------------- #
-# 7. Idade da Floresta Secundária
-# ---------------------------------------------------------------------------- #
-# Similar ao que fez no script GEE
-empty_age = ee.Image().byte()
-age1986 = sforest_ext.select('classification_1986').rename('classification_1986')
-empty_age = empty_age.addBands(age1986)
-empty_age = empty_age.slice(1)  # descarta banda "0"
-
-temp = empty_age
-for i in range(1, totalYears - 1):
-    y = firstYear + 1 + i
-    band_name = 'classification_{}'.format(y)
-
-    sforest = sforest_ext.select(band_name)
-    ageforest = empty_age.add(sforest)
-    fYear = mapbiomas_forest.select(band_name)
-    # ageforest * fYear garante que só conta onde há floresta
-    ageforest = ageforest.multiply(fYear)
-
-    temp = temp.addBands(ageforest.rename(band_name))
-    empty_age = ageforest
-
-sforest_age = temp
-
-
-# ---------------------------------------------------------------------------- #
-# 8. Paletas e Parâmetros de Visualização por Produto
-# ---------------------------------------------------------------------------- #
-product_vis_params = {
-    "Incremento (sforest_all)": {
-        "min": 0,
-        "max": 1,
-        "palette": ['ffffff', 'ff0000']  # branco a vermelho
-    },
-    "Extensão (sforest_ext)": {
-        "min": 0,
-        "max": 1,
-        "palette": ['ffffff', 'ff0000']
-    },
-    "Perda (sforest_loss)": {
-        "min": 0,
-        "max": 1,
-        "palette": ['ffffff', 'ff0000']
-    },
-    "Idade (sforest_age)": {
-        "min": 0,
-        "max": 37,  # ou (lastYear - 1986)
-        "palette": [
-    'ffffcc','ffeda0','fed976','feb24c','fd8d3c','fc4e2a','e31a1c','bd0026','800026'
-]
-    }
+# Definição das assets do GEE
+assets = {
+    "Idade (sforest_age)": "users/ybyrabr/public/secondary_vegetation_age_collection9_v7",
+    "Extensão (sforest_ext)": "users/ybyrabr/public/secondary_vegetation_extent_collection9_v7",
+    "Incremento (sforest_all)": "users/ybyrabr/public/secondary_vegetation_increment_collection9_v7",
+    "Perda (sforest_loss)": "users/ybyrabr/public/secondary_vegetation_loss_collection9_v7"
 }
+
+# Parâmetros de visualização
+product_vis_params = {
+    "Incremento (sforest_all)": {"min": 0, "max": 1, "palette": ['ffffff', 'ff0000']},
+    "Extensão (sforest_ext)": {"min": 0, "max": 1, "palette": ['ffffff', 'ff0000']},
+    "Perda (sforest_loss)": {"min": 0, "max": 1, "palette": ['ffffff', 'ff0000']},
+    "Idade (sforest_age)": {"min": 0, "max": 37, "palette": ['ffffcc','ffeda0','fed976','feb24c','fd8d3c','fc4e2a','e31a1c','bd0026','800026']}
+}
+
+# Sidebar para seleção do produto e ano
+st.sidebar.image('asset/ipam-brand-color.png', width=150)
+
+st.sidebar.markdown(
+    """
+    <div style="font-size: 12px;">
+    <strong>Associated Publication (method description):</strong><br><br>
+    Silva-Junior, C.H.L., Heinrich, V.H.A., Freire, A.T.G., Broggio, I.S., Rosan, T.M., Doblas, J., Anderson, L.O., Rousseau, G.X., Shimabukuro, Y.E., Silva, C.A., House, J.I., Aragão, L.E.O.C. <em>Benchmark maps of 33 years of secondary forest age for Brazil</em>. <em>Scientific Data (2020)</em>.<br>
+    <a href="https://doi.org/10.1038/s41597-020-00600-4" target="_blank">https://doi.org/10.1038/s41597-020-00600-4</a>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+st.sidebar.divider()
+
+selected_product = st.sidebar.selectbox("Escolha o produto para visualizar:", list(assets.keys()), key='product_select')
+selected_year = st.sidebar.selectbox("Escolha o ano de visualização:", list(range(1986, lastYear + 1)), index=2023 - 1986, key='year_select')
+
+band_name_selected = f"classification_{selected_year}"
+image_selected = ee.Image(assets[selected_product]).clip(brazil)
 
 # ---------------------------------------------------------------------------- #
 # 9. Visualização Interativa no Streamlit
@@ -240,43 +94,10 @@ with st.expander("About This App", expanded=False):
     """)
     st.image('asset/image.jpg', caption="Exemplo de imagem", width=600)
 
-# Seleção do produto e ano para visualização
-products_dict = {
-    "Incremento (sforest_all)": sforest_all,
-    "Extensão (sforest_ext)": sforest_ext,
-    "Perda (sforest_loss)": sforest_loss,
-    "Idade (sforest_age)": sforest_age
-}
 
-st.sidebar.image('asset/ipam-brand-color.png',width=150)
 
-st.sidebar.markdown(
-    """
-    <div style="font-size: 12px;">
-    <strong>Associated Publication (method description):</strong><br><br>
-    Silva-Junior, C.H.L., Heinrich, V.H.A., Freire, A.T.G., Broggio, I.S., Rosan, T.M., Doblas, J., Anderson, L.O., Rousseau, G.X., Shimabukuro, Y.E., Silva, C.A., House, J.I., Aragão, L.E.O.C. <em>Benchmark maps of 33 years of secondary forest age for Brazil</em>. <em>Scientific Data (2020)</em>.<br>
-    <a href="https://doi.org/10.1038/s41597-020-00600-4" target="_blank">https://doi.org/10.1038/s41597-020-00600-4</a>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
 
-st.sidebar.divider()
-
-selected_product = st.sidebar.selectbox(
-    "Escolha o produto para visualizar:",
-    list(products_dict.keys())
-)
-
-selected_year = st.sidebar.selectbox(
-    "Escolha o ano de visualização:",
-    list(range(1986, lastYear + 1)),
-    index=2023 - 1986  # define o ano 2000 como opção padrão
-)
-
-band_name_selected = f"classification_{selected_year}"
-image_selected = products_dict[selected_product]
-
+# Renderiza o mapa interativo
 if band_name_selected not in image_selected.bandNames().getInfo():
     st.warning("Ano/banda selecionado não está disponível para este produto.")
 else:
@@ -295,6 +116,7 @@ else:
     # Map.add_basemap('CartoDB.DarkMatter') # Mapa "preto"
     Map.addLayer(single_band_masked, vis_params, f"{selected_product} - {selected_year}")
     Map.addLayerControl()
+   
         # # Renderiza o mapa no Streamlit
     # Map.to_streamlit(height=600)
     
