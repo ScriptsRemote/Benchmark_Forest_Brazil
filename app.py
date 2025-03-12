@@ -12,17 +12,17 @@ import folium
 # 1. Inicialização do Earth Engine
 # ---------------------------------------------------------------------------- #
 # Certifique-se de ter executado previamente: earthengine authenticate
-# try:
-#     ee.Initialize()
-# except Exception as e:
-#     ee.Authenticate()
-#     ee.Initialize()
+try:
+    ee.Initialize()
+except Exception as e:
+    ee.Authenticate()
+    ee.Initialize()
 
 # Defina a configuração de página para "wide"
 st.set_page_config(layout="wide")
 
 ##Login GEE 
-m=geemap.Map()
+# m=geemap.Map()
 firstYear = 1985
 lastYear = 2023
 totalYears = lastYear - firstYear + 1
