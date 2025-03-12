@@ -3,7 +3,7 @@ import ee
 import geemap.foliumap as geemap
 import folium
 from streamlit_folium import st_folium
-from streamlit_folium import folium_static
+# from streamlit_folium import folium_static
 import folium
 
 
