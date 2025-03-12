@@ -11,15 +11,16 @@ import folium
 # ---------------------------------------------------------------------------- #
 # 1. Inicialização do Earth Engine
 # ---------------------------------------------------------------------------- #
-# Certifique-se de ter executado previamente: earthengine authenticate
-try:
-    ee.Initialize()
-except Exception as e:
-    ee.Authenticate()
-    ee.Initialize()
+
 
 # Defina a configuração de página para "wide"
 st.set_page_config(layout="wide")
+
+##linha de código para autenticação
+service_account = 'my-service-account@...gserviceaccount.com'
+credentials = ee.ServiceAccountCredentials(service_account, '.private-key.json')
+ee.Initialize(credentials)
+
 
 ##Login GEE 
 # m=geemap.Map()
